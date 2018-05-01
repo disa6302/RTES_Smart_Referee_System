@@ -1,11 +1,6 @@
 /*
- *  Author: Divya Sampath Kumar, Harsimransingh Bindra
- *	Description: The code calculates average time taken to compute Hough 
-				 Elliptical transform of 100 frames of an image. clock_gettime() is
-				 used to calculate the time. The frame sizes under consid-
-				 eration are: 320*240, 640*480, 1280*960. 
- *  Example by Sam Siewert
- *
+ *  Author: Divya Sampath Kumar, Bhallaji Venkatesan
+
  */
  
 #include <unistd.h>
