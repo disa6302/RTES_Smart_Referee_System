@@ -98,24 +98,27 @@ int delta_t(struct timespec *stop, struct timespec *start, struct timespec *delt
   return 1;
 }
 
-static struct timespec start1_time = {0, 0};
-    static struct timespec stop1_time = {0, 0};
-    static struct timespec final1_time = {0, 0};
+
 
 void* BallDetection(void *arg)
 {
-    
+    static struct timespec start_time = {0, 0};
+    static struct timespec stop_time = {0, 0};
+    static struct timespec final_time = {0, 0};
     vector<Vec3f> circles1,circles2;
     Rect roi1,roi2;
+    unsigned long int avgWCET=0, maxWCET=0;
     int numberOfFrames = GOALS;
-    clock_gettime(CLOCK_REALTIME, &start1_time);
+
     while(numberOfFrames > 0)
     {
+
 	    pthread_mutex_lock(&mutex_locker);
 	    pthread_cond_wait(&cond_locker,&mutex_locker);
-	    //printf("got the lock 1st in detect%d\n",numberOfFrames);
-
-
+	    
+	    clock_gettime(CLOCK_REALTIME, &start_time);
+	   
+	
 	    roi2.width = gray.size().width - (ROI2_x_offset*2);
 	    roi2.height = gray.size().height - (ROI2_y_offset*2);
 	    crop_ROI2 = gray(roi2);
@@ -172,19 +175,28 @@ void* BallDetection(void *arg)
 		lookup[1]++;
 		detect2 = 0;
 	    }
-	    //printf("[Frame Num :%d] detect1:%d,detect2:%d\n",numberOfFrames,detect1,detect2);
+
 	    numberOfFrames--;
-	    pthread_mutex_unlock(&mutex_locker);
+	    
 	    imshow("ROI2_Image", crop_ROI2);
 	    imshow("ROI1_Image", crop_ROI1);
-	    //printf("Reached here %d\n",numberOfFrames);
+	    clock_gettime(CLOCK_REALTIME, &stop_time);
+	    delta_t(&stop_time,&start_time,&final_time);
+	    pthread_mutex_unlock(&mutex_locker);
 	    signal_capture = 1;
 	    
+	  
+	    avgWCET += (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
+	    if(maxWCET < ((final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000))
+	    	maxWCET = (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
+	
+	    start_time.tv_sec = start_time.tv_nsec  = 0;
+    	    stop_time.tv_sec = stop_time.tv_nsec = 0; 
+    	    final_time.tv_sec = final_time.tv_nsec = 0;
 	}//end of while
 	
-	clock_gettime(CLOCK_REALTIME, &stop1_time);
-	delta_t(&stop1_time,&start1_time,&final1_time);
-    	printf("\n[Ball Detection]Run Time for %d frames:%ld sec %ldmsec\n",GOALS,final1_time.tv_sec,(final1_time.tv_nsec)/NSEC_PER_MSEC);
+	printf("\n[Ball Detection]ACET over %d frames:%ldmsec\n",GOALS,avgWCET/GOALS);
+	printf("\n[Ball Detection]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
 	pthread_exit(NULL);
 }
 
@@ -193,6 +205,7 @@ void* BallCapture(void *arg)
     static struct timespec start_time = {0, 0};
     static struct timespec stop_time = {0, 0};
     static struct timespec final_time = {0, 0};
+    unsigned long avgWCET, maxWCET = 0;
     cvNamedWindow(timg_window_name_houghline_eliptical, CV_WINDOW_AUTOSIZE);
    
     capture = (CvCapture *)cvCreateCameraCapture(0);
@@ -261,30 +274,36 @@ void* BallCapture(void *arg)
    while(numberOfFrames > 0)
    {
         pthread_mutex_lock(&mutex_locker);
-	//printf("got the lock 1st in capture %d\n",numberOfFrames);
+	clock_gettime(CLOCK_REALTIME, &start_time);
+
 	frame=cvQueryFrame(capture);
 
 	Mat mat_frame(frame);
-	//gray = mat_frame;
 	gray = mat_frame.clone();
 	numberOfFrames--;  
+	
 	pthread_cond_signal(&cond_locker);
 	pthread_mutex_unlock(&mutex_locker);
         if(!frame) break;
         cvShowImage(timg_window_name_houghline_eliptical, frame);      
 	char c = cvWaitKey(5);
 	if( c == 27 ) break;
-	//usleep(100000); //0.1 second delay to synchronize both threads
+	clock_gettime(CLOCK_REALTIME, &stop_time);
+
+   	delta_t(&stop_time,&start_time,&final_time);
+	avgWCET += (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
+	if(maxWCET < ((final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000))
+	    	maxWCET = (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
+	start_time.tv_sec = start_time.tv_nsec  = 0;
+    	stop_time.tv_sec = stop_time.tv_nsec = 0; 
+    	final_time.tv_sec = final_time.tv_nsec = 0;
 	while(signal_capture==0);
 	signal_capture = 0;
    }
     
-    //Stop timer
-    clock_gettime(CLOCK_REALTIME, &stop_time);
-
-    delta_t(&stop_time,&start_time,&final_time);
-    printf("\n[Ball Capture]Run Time for %d frames:%ld sec %ldmsec\n",GOALS,final_time.tv_sec,(final_time.tv_nsec)/NSEC_PER_MSEC);
-    
+   
+    printf("\n[Ball Capture]ACET over %d frames:%ldmsec\n",GOALS,avgWCET/GOALS);
+    printf("\n[Ball Capture]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
     cvReleaseCapture(&capture);
     cvDestroyWindow(timg_window_name_houghline_eliptical);
     pthread_exit(NULL);
@@ -386,9 +405,8 @@ int main( int argc, char** argv )
     pthread_attr_setschedparam(&speaker_attr, &speaker_prio);
 
     
-  
     printf("Threads will run on %d CPU cores\n", CPU_COUNT(&threadcpu));
-
+    printf("Thread Priorities:%d
    
     
     if (pthread_create(&captureThread, &capture_attr,BallCapture, NULL) != 0)
@@ -404,4 +422,4 @@ int main( int argc, char** argv )
     pthread_join(detectThread,NULL);
     printf("Goals:%d,No Goals:%d,Invalid:%d,Total:%d\n",lookup[0],lookup[1],lookup[2],(lookup[0]+lookup[1]+lookup[2]));
     
-};
+}
