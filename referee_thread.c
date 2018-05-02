@@ -1,5 +1,5 @@
 /*
- *  Author: Divya Sampath Kumar, Bhallji Venkatesan
+ *  Author: Divya Sampath Kumar, Bhallaji Venkatesan
  
  */
  
@@ -20,16 +20,17 @@ pthread_cond_t cond_locker = PTHREAD_COND_INITIALIZER;
 
 volatile int lookup[3]={0};
 char timg_window_name_houghline_eliptical[] = "Houghline Elliptical Transform";
+Mat crop_ROI2,crop_ROI1;
 
 Mat copied,copied2;
-volatile sig_atomic_t detect1, detect2;
+volatile sig_atomic_t detect1, detect2, signal_capture = 0;
 
 /* Macros */
 #define NSEC_PER_SEC (1000000000)
 #define NSEC_PER_MSEC (1000000)
 #define NSEC_PER_MICROSEC (1000)
 
-#define GOALS 10
+#define GOALS 100
 #define ROI2_x_offset 40
 #define ROI2_y_offset 30
 #define ROI1_x_offset 80
@@ -77,19 +78,22 @@ int delta_t(struct timespec *stop, struct timespec *start, struct timespec *delt
   return 1;
 }
 
-Mat crop_ROI2,crop_ROI1;
+static struct timespec start1_time = {0, 0};
+    static struct timespec stop1_time = {0, 0};
+    static struct timespec final1_time = {0, 0};
 
 void* BallDetection(void *arg)
 {
+    
     vector<Vec3f> circles1,circles2;
     Rect roi1,roi2;
     int numberOfFrames = GOALS;
-
+    clock_gettime(CLOCK_REALTIME, &start1_time);
     while(numberOfFrames > 0)
     {
 	    pthread_mutex_lock(&mutex_locker);
 	    pthread_cond_wait(&cond_locker,&mutex_locker);
-	    printf("got the lock 1st in detect%d\n",numberOfFrames);
+	    //printf("got the lock 1st in detect%d\n",numberOfFrames);
 
 
 	    roi2.width = gray.size().width - (ROI2_x_offset*2);
@@ -132,7 +136,8 @@ void* BallDetection(void *arg)
 		circle(crop_ROI2, center2, 1, Scalar(0,255,0), -1, 8, 0 );
 		circle(crop_ROI2, center2, radius2, Scalar(0,0,255), 3, 8, 0 );
 	    }  	
-       	   
+       	    
+	    	   
 	    if(!detect1 && !detect2)
 	    {
 		lookup[2]++;
@@ -150,7 +155,14 @@ void* BallDetection(void *arg)
 	    //printf("[Frame Num :%d] detect1:%d,detect2:%d\n",numberOfFrames,detect1,detect2);
 	    numberOfFrames--;
 	    pthread_mutex_unlock(&mutex_locker);
+	    printf("Reached here %d\n",numberOfFrames);
+	    signal_capture = 1;
+	    
 	}//end of while
+	
+	clock_gettime(CLOCK_REALTIME, &stop1_time);
+	delta_t(&stop1_time,&start1_time,&final1_time);
+    	printf("\n[Ball Detection]Run Time for %d frames:%ld sec %ldmsec\n",GOALS,final1_time.tv_sec,(final1_time.tv_nsec)/NSEC_PER_MSEC);
 	pthread_exit(NULL);
 }
 
@@ -226,12 +238,12 @@ void* BallCapture(void *arg)
    
    while(numberOfFrames > 0)
    {
-
         pthread_mutex_lock(&mutex_locker);
-	printf("got the lock 1st in capture %d\n",numberOfFrames);
+	//printf("got the lock 1st in capture %d\n",numberOfFrames);
 	frame=cvQueryFrame(capture);
 
 	Mat mat_frame(frame);
+	//gray = mat_frame;
 	gray = mat_frame.clone();
 	numberOfFrames--;  
 	pthread_cond_signal(&cond_locker);
@@ -240,17 +252,19 @@ void* BallCapture(void *arg)
         cvShowImage(timg_window_name_houghline_eliptical, frame);      
         imshow("ROI2_Image", crop_ROI2);
 	imshow("ROI1_Image", crop_ROI1);
-	char c = cvWaitKey(10);
+	char c = cvWaitKey(5);
 	if( c == 27 ) break;
-	usleep(100000); //0.1 second delay to synchronize both threads
+	//usleep(100000); //0.1 second delay to synchronize both threads
+	while(signal_capture==0);
+	signal_capture = 0;
    }
     
     //Stop timer
     clock_gettime(CLOCK_REALTIME, &stop_time);
 
     delta_t(&stop_time,&start_time,&final_time);
-    printf("\nRun Time for %d frames:%ld sec %ldmsec\n",GOALS,final_time.tv_sec,(final_time.tv_nsec)/NSEC_PER_MSEC);
-
+    printf("\n[Ball Capture]Run Time for %d frames:%ld sec %ldmsec\n",GOALS,final_time.tv_sec,(final_time.tv_nsec)/NSEC_PER_MSEC);
+    
     cvReleaseCapture(&capture);
     cvDestroyWindow(timg_window_name_houghline_eliptical);
     pthread_exit(NULL);
@@ -268,8 +282,9 @@ int main( int argc, char** argv )
     {
         printf("Failed to create ball detect thread\n");
     }
-    pthread_join(detectThread,NULL);
+    
     pthread_join(captureThread,NULL);
+    pthread_join(detectThread,NULL);
     printf("Goals:%d,No Goals:%d,Invalid:%d,Total:%d\n",lookup[0],lookup[1],lookup[2],(lookup[0]+lookup[1]+lookup[2]));
     
 };
