@@ -2,16 +2,34 @@
  *  Author: Divya Sampath Kumar, Bhallaji Venkatesan
  
  */
- 
+
+
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <iostream>
 #include <signal.h>
 #include <pthread.h>
+
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <unistd.h>
+
+#include <pthread.h>
+#include <sched.h>
+#include <time.h>
+#include <semaphore.h>
+
+#include <syslog.h>
+#include <sys/time.h>
+
+#include <errno.h>
+
 #include <opencv2/core/core.hpp>
 #include <opencv2/highgui/highgui.hpp>
 #include <opencv2/imgproc/imgproc.hpp>
+
 
 using namespace cv;
 using namespace std;
@@ -29,6 +47,8 @@ volatile sig_atomic_t detect1, detect2, signal_capture = 0;
 #define NSEC_PER_SEC (1000000000)
 #define NSEC_PER_MSEC (1000000)
 #define NSEC_PER_MICROSEC (1000)
+#define NUM_CPU_CORES (1)
+
 
 #define GOALS 100
 #define ROI2_x_offset 40
@@ -37,7 +57,7 @@ volatile sig_atomic_t detect1, detect2, signal_capture = 0;
 #define ROI1_y_offset 60
 
 pthread_t detectThread,captureThread;
-pthread_attr_t main_sched_attr, thread_attr;
+pthread_attr_t main_sched_attr, capture_attr, detect_attr, speaker_attr;
 
 CvCapture* capture;
 IplImage* frame;
@@ -155,7 +175,9 @@ void* BallDetection(void *arg)
 	    //printf("[Frame Num :%d] detect1:%d,detect2:%d\n",numberOfFrames,detect1,detect2);
 	    numberOfFrames--;
 	    pthread_mutex_unlock(&mutex_locker);
-	    printf("Reached here %d\n",numberOfFrames);
+	    imshow("ROI2_Image", crop_ROI2);
+	    imshow("ROI1_Image", crop_ROI1);
+	    //printf("Reached here %d\n",numberOfFrames);
 	    signal_capture = 1;
 	    
 	}//end of while
@@ -250,8 +272,6 @@ void* BallCapture(void *arg)
 	pthread_mutex_unlock(&mutex_locker);
         if(!frame) break;
         cvShowImage(timg_window_name_houghline_eliptical, frame);      
-        imshow("ROI2_Image", crop_ROI2);
-	imshow("ROI1_Image", crop_ROI1);
 	char c = cvWaitKey(5);
 	if( c == 27 ) break;
 	//usleep(100000); //0.1 second delay to synchronize both threads
@@ -270,15 +290,112 @@ void* BallCapture(void *arg)
     pthread_exit(NULL);
 }
 
+void print_scheduler(void)
+{
+   int schedType;
+
+   schedType = sched_getscheduler(getpid());
+
+   switch(schedType)
+   {
+       case SCHED_FIFO:
+           printf("Pthread Policy is SCHED_FIFO\n");
+           break;
+       case SCHED_OTHER:
+           printf("Pthread Policy is SCHED_OTHER\n"); exit(-1);
+         break;
+       case SCHED_RR:
+           printf("Pthread Policy is SCHED_RR\n"); exit(-1);
+           break;
+       default:
+           printf("Pthread Policy is UNKNOWN\n"); exit(-1);
+   }
+}
 
 int main( int argc, char** argv )
 {
-    pthread_attr_init(&thread_attr);
-    if (pthread_create(&captureThread, &thread_attr,BallCapture, NULL) != 0)
+    pthread_attr_init(&capture_attr);
+    pthread_attr_init(&detect_attr); 
+    pthread_attr_init(&speaker_attr);
+
+    int i, rc, scope;
+    cpu_set_t threadcpu;
+    int rt_max_prio, rt_min_prio;
+    struct sched_param capture_prio,detect_prio, speaker_prio;
+    struct sched_param main_param;
+    pthread_attr_t main_attr;
+    pid_t mainpid;
+    cpu_set_t allcpuset;
+    struct timeval current_time_val,start_time_val;
+    printf("Starting Referee Demo\n");
+    gettimeofday(&start_time_val, (struct timezone *)0);
+    gettimeofday(&current_time_val, (struct timezone *)0);
+   
+
+    CPU_ZERO(&allcpuset);
+
+    for(i=0; i < NUM_CPU_CORES; i++)
+       CPU_SET(i, &allcpuset);
+
+    printf("Using CPUS=%d from total available.\n", CPU_COUNT(&allcpuset));
+
+    mainpid=getpid();
+
+    rt_max_prio = sched_get_priority_max(SCHED_FIFO);
+    rt_min_prio = sched_get_priority_min(SCHED_FIFO);
+
+    rc=sched_getparam(mainpid, &main_param);
+    main_param.sched_priority=rt_max_prio;
+    rc=sched_setscheduler(getpid(), SCHED_FIFO, &main_param);
+    if(rc < 0) perror("main_param");
+    print_scheduler();
+  
+    
+    pthread_attr_getscope(&main_attr, &scope);
+
+    if(scope == PTHREAD_SCOPE_SYSTEM)
+      printf("PTHREAD SCOPE SYSTEM\n");
+    else if (scope == PTHREAD_SCOPE_PROCESS)
+      printf("PTHREAD SCOPE PROCESS\n");
+    else
+      printf("PTHREAD SCOPE UNKNOWN\n");
+
+    printf("rt_max_prio=%d\n", rt_max_prio);
+    printf("rt_min_prio=%d\n", rt_min_prio);
+
+    CPU_ZERO(&threadcpu);
+    CPU_SET(3, &threadcpu);
+
+    rc=pthread_attr_setinheritsched(&capture_attr, PTHREAD_EXPLICIT_SCHED);
+    rc=pthread_attr_setschedpolicy(&capture_attr, SCHED_FIFO);
+
+    rc=pthread_attr_setinheritsched(&detect_attr, PTHREAD_EXPLICIT_SCHED);
+    rc=pthread_attr_setschedpolicy(&detect_attr, SCHED_FIFO);
+
+    rc=pthread_attr_setinheritsched(&speaker_attr, PTHREAD_EXPLICIT_SCHED);
+    rc=pthread_attr_setschedpolicy(&speaker_attr, SCHED_FIFO);
+
+    capture_prio.sched_priority=rt_max_prio-1;
+    pthread_attr_setschedparam(&capture_attr, &capture_prio);
+
+    detect_prio.sched_priority=rt_max_prio-1;
+    pthread_attr_setschedparam(&detect_attr, &detect_prio);
+
+
+    speaker_prio.sched_priority=rt_max_prio-1;
+    pthread_attr_setschedparam(&speaker_attr, &speaker_prio);
+
+    
+  
+    printf("Threads will run on %d CPU cores\n", CPU_COUNT(&threadcpu));
+
+   
+    
+    if (pthread_create(&captureThread, &capture_attr,BallCapture, NULL) != 0)
     {
         printf("Failed to create ball detect thread\n");
     } 
-    if (pthread_create(&detectThread, &thread_attr,BallDetection, NULL) != 0)
+    if (pthread_create(&detectThread, &detect_attr,BallDetection, NULL) != 0)
     {
         printf("Failed to create ball detect thread\n");
     }
