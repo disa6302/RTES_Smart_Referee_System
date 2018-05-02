@@ -397,16 +397,16 @@ int main( int argc, char** argv )
     capture_prio.sched_priority=rt_max_prio-1;
     pthread_attr_setschedparam(&capture_attr, &capture_prio);
 
-    detect_prio.sched_priority=rt_max_prio-1;
+    detect_prio.sched_priority=rt_max_prio-2;
     pthread_attr_setschedparam(&detect_attr, &detect_prio);
 
 
-    speaker_prio.sched_priority=rt_max_prio-1;
+    speaker_prio.sched_priority=rt_max_prio-3;
     pthread_attr_setschedparam(&speaker_attr, &speaker_prio);
 
     
     printf("Threads will run on %d CPU cores\n", CPU_COUNT(&threadcpu));
-    printf("Thread Priorities:%d
+    printf("Thread Priorities\n[Ball Capture]		%d\n[Ball Detection]	%d\n[Speaker]		%d\n",capture_prio.sched_priority,detect_prio.sched_priority,speaker_prio.sched_priority);
    
     
     if (pthread_create(&captureThread, &capture_attr,BallCapture, NULL) != 0)
