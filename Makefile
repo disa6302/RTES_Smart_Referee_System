@@ -5,20 +5,20 @@ CC=g++
 CDEFS=
 CFLAGS= -O0 -pg -g $(INCLUDE_DIRS) $(CDEFS)
 LIBS= -lrt
-CPPLIBS= -L/usr/lib -lopencv_core -lopencv_flann -lopencv_video
+CPPLIBS= -L/usr/lib -lopencv_core -lopencv_flann -lopencv_video -lespeak
 
 HFILES= 
 CFILES= 
-CPPFILES= referee.cpp referee_thread.cpp
+CPPFILES= referee.cpp referee_thread.c referee_speaker.c
 
 SRCS= ${HFILES} ${CFILES}
 CPPOBJS= ${CPPFILES:.cpp=.o}
 
-all:	referee referee_thread
+all:	referee referee_thread referee_speaker
 
 clean:
 	-rm -f *.o *.d
-	-rm -f referee referee_thread
+	-rm -f referee referee_thread referee_speaker
 
 distclean:
 	-rm -f *.o *.d
@@ -28,6 +28,9 @@ referee: referee.o
 	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o `pkg-config --libs opencv` $(CPPLIBS)
 	
 referee_thread: referee_thread.o
+	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o `pkg-config --libs opencv` $(CPPLIBS)
+
+referee_speaker: referee_speaker.o
 	$(CC) $(LDFLAGS) $(CFLAGS) -o $@ $@.o `pkg-config --libs opencv` $(CPPLIBS)
 
 depend:
