@@ -52,6 +52,7 @@
 #define ENDOFGAME 6
 #define START 	  7	
 #define PROCESSING 8
+#define DELAYED 9
 
 using namespace cv;
 using namespace std;
@@ -76,7 +77,7 @@ volatile sig_atomic_t goal_status = WAITING;
 #define NUM_CPU_CORES (1)
 
 
-#define GOALS 200
+#define GOALS 150
 #define ROI2_x_offset 40
 #define ROI2_y_offset 30
 #define ROI1_x_offset 80
@@ -106,9 +107,10 @@ espeak_PARAMETER Parm;
 
 char text_goal[30] = {"Goal....Goal....Goal"};
 char text_nogoal[30] = {"No Goal"};
-char text_invalid[30] = {"Invalid throw"};
+char text_invalid[30] = {"Invalid"};
 char text_eog[30] = {"End of Game!"};
 char text_continue[30] = {"Continue Game!"};
+char text_delayed[30] = {"Please try again!"};
 unsigned int size_speak,position=0, end_position=0, flags=espeakCHARS_AUTO, *unique_identifier;
 
 /* Function definition for delta_t */
@@ -153,20 +155,30 @@ void* ProcessResults(void* arg)
   struct timespec stop_time = {0, 0};
   struct timespec final_time = {0, 0};
   unsigned long int avgWCET=0, maxWCET=0;
-  while(numchances!=0)
+  while(numchances>0)
   {
     
     sem_wait(&sem3);
     clock_gettime(CLOCK_REALTIME, &start_time);
-    printf("\n[Process Results]Task Request Time %ld sec %ld ms\n",start_time.tv_sec,start_time.tv_nsec/NSEC_PER_MSEC);
-    printf("\n Goal status Received");
+   // printf("\n[Process Results]Task Request Time %ld sec %ld ms\n",start_time.tv_sec,start_time.tv_nsec/NSEC_PER_MSEC);
+   // printf("\n Goal status Received");
     game_state = WAIT;
+    numchances=numchances-1;
+    /*if(goal_status == DELAYED)
+    {
+	printf("\n:Try again\n");
+	size_speak = strlen(text_delayed)+1;
+        printf("Saying '%s'",text_delayed);
+        espeak_Synth( text_delayed, size_speak, position, position_type, end_position, flags,
+        unique_identifier, user_data );
+        espeak_Synchronize( );
+        printf("\n:Done\n"); 
+    }*/
     
     if (goal_status == GOAL)
     {
-	goalcount++;
-	//lookup[GOAL-1]++;
-        numchances--; 	
+	goalcount++;	
+	//numchances=numchances-1;
  	printf("\n:Goal\n");
 	size_speak = strlen(text_goal)+1;
         printf("Saying '%s'",text_goal);
@@ -177,33 +189,32 @@ void* ProcessResults(void* arg)
     }
     else if (goal_status == NOGOAL)
     {
-	//lookup[NOGOAL-1]++;
-	numchances--;
-	printf("\n NO Goal\n");
+	//printf("\n NO Goal\n");
+	//numchances=numchances-1;
 	size_speak = strlen(text_nogoal)+1;
         printf("Saying '%s'",text_nogoal);
         espeak_Synth(text_nogoal, size_speak, position, position_type, end_position, flags,
         unique_identifier, user_data );
         espeak_Synchronize( );
-        printf("\n:Done\n");
+        //printf("\n:Done\n");
     }
     else if (goal_status == INVALID)
     {
-	//lookup[INVALID-1]++;
-	numchances--;
-  	printf("\n:Invalid\n");
+  	//printf("\n:Invalid\n");
+	//numchances=numchances-1;
 	size_speak = strlen(text_invalid)+1;
         printf("Saying '%s'",text_invalid);
-        espeak_Synth( text_invalid, size_speak, position, position_type, end_position, flags,
+        espeak_Synth(text_invalid, size_speak, position, position_type, end_position, flags,
         unique_identifier, user_data );
         espeak_Synchronize( );
-        printf("\n:Done\n");  
+        //printf("\n:Done\n");  
     }
     goal_status = WAITING;
+
     if(!numchances)
     {
 	char text_goalstats[30];
-        sprintf(text_goalstats,"Number of Goals Scored is %d. End of Game!",goalcount);
+        sprintf(text_goalstats,"Your final Score %d. End of Game!",goalcount);
         size_speak = strlen(text_goalstats)+1;
     	printf("Saying '%s'",text_goalstats);
     	espeak_Synth( text_goalstats, size_speak, position, position_type, end_position, flags,
@@ -224,15 +235,16 @@ void* ProcessResults(void* arg)
     	espeak_Synth( text_goalstats, size_speak, position, position_type, end_position, flags,
     	unique_identifier, user_data );
     	espeak_Synchronize( );
-    	printf("\n:Done\n");
+    	//printf("\n:Done\n");
         game_state = CONTINUE;
-	printf("number of chances:%d\n",numchances);
+	
+	//printf("number of chances:%d\n",numchances);
 	sem_post(&sem1);
 	sem_post(&sem2);	
     }  
     clock_gettime(CLOCK_REALTIME, &stop_time);
     delta_t(&stop_time,&start_time,&final_time);
-    printf("\n[Process Results]Completion Time %ld sec %ld ms\n",stop_time.tv_sec,stop_time.tv_nsec/NSEC_PER_MSEC);
+    //printf("\n[Process Results]Completion Time %ld sec %ld ms\n",stop_time.tv_sec,stop_time.tv_nsec/NSEC_PER_MSEC);
     avgWCET += (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
 
     if(maxWCET < ((final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000))
@@ -241,8 +253,8 @@ void* ProcessResults(void* arg)
     start_time.tv_sec = start_time.tv_nsec  = 0;
     stop_time.tv_sec = stop_time.tv_nsec = 0; 
     final_time.tv_sec = final_time.tv_nsec = 0;
-    printf("\n[Process Results]ACET over %d frames:%ldmsec\n",GOALS,avgWCET);
-    printf("\n[Process Results]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
+    //printf("\n[Process Results]ACET over %d frames:%ldmsec\n",GOALS,avgWCET);
+    //printf("\n[Process Results]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
   }
 
     pthread_exit(NULL);
@@ -261,14 +273,14 @@ void* BallDetection(void *arg)
     Rect roi1,roi2;
     unsigned long int avgWCET=0, maxWCET=0;
     int numberOfFrames = GOALS;
-    while(numchances >0)
+    while(numchances > 0)
     {
 
    
-    sem_wait(&sem2);
-    if(game_state == ENDOFGAME)
-	break;  
-	printf("number of chances in detect:%d\n",numchances);
+        sem_wait(&sem2);
+        if(game_state == ENDOFGAME)
+	    break;  
+
         numberOfFrames = GOALS;
     	while(numberOfFrames > 0)
     	{
@@ -277,7 +289,7 @@ void* BallDetection(void *arg)
 	    pthread_cond_wait(&cond_locker,&mutex_locker);
 	    
 	    clock_gettime(CLOCK_REALTIME, &start_time);
-	    printf("\n[Ball Detection]Task Request Time %ld sec %ld ms\n",start_time.tv_sec,start_time.tv_nsec/NSEC_PER_MSEC);
+	    //printf("\n[Ball Detection]Task Request Time %ld sec %ld ms\n",start_time.tv_sec,start_time.tv_nsec/NSEC_PER_MSEC);
 	   
 	    
 	   
@@ -347,9 +359,9 @@ void* BallDetection(void *arg)
 	    clock_gettime(CLOCK_REALTIME, &stop_time);
 	    delta_t(&stop_time,&start_time,&final_time);
 	    pthread_mutex_unlock(&mutex_locker);
-            printf("\n[Ball Detection]Completion Time %ld sec %ld ms\n",stop_time.tv_sec,stop_time.tv_nsec/NSEC_PER_MSEC);
+           // printf("\n[Ball Detection]Completion Time %ld sec %ld ms\n",stop_time.tv_sec,stop_time.tv_nsec/NSEC_PER_MSEC);
 	    signal_capture = 1;
-	    //printf("\n Reached here in ball detection with Frames %d \n",numberOfFrames);
+	    //printf("Lookup Value:%d\n",lookup[2]);
 	    
 	    avgWCET += (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
 	    if(maxWCET < ((final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000))
@@ -369,19 +381,25 @@ void* BallDetection(void *arg)
     	{
 	    goal_status = NOGOAL;
         }
-    	else if((lookup[2]-100)>80) 
-	{
- 	    goal_status = INVALID;
-	}
+    	
 	/*else if((lookup[2])>65) 
 	{
  	    goal_status = INVALID;
 	}*/
+	/*else if((lookup[0]>35 && lookup[0]<65) || (lookup[1]>35 && lookup[1]<65))
+	{
+	    printf("Entered here!\n");
+	    goal_status = DELAYED;
+	}*/
+	else if((lookup[2])>65) 
+	{
+ 	    goal_status = INVALID;
+	}
 	sem_post(&sem3);
-	printf("\n[Ball Detection]ACET over %d frames:%ldmsec\n",GOALS,avgWCET/GOALS);
-	printf("\n[Ball Detection]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
+	//printf("\n[Ball Detection]ACET over %d frames:%ldmsec\n",GOALS,avgWCET/GOALS);
+	//printf("\n[Ball Detection]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
 	
-	printf("Goals:%d,No Goals:%d,Invalid:%d,Total:%d\n",lookup[0],lookup[1],(lookup[2]),(lookup[0]+lookup[1]+lookup[2]));
+	//printf("Goals:%d,No Goals:%d,Invalid:%d,Total:%d\n",lookup[0],lookup[1],(lookup[2]),(lookup[0]+lookup[1]+lookup[2]));
 	lookup[0] = lookup[1] = lookup[2] =0;
 	cvDestroyWindow("ROI2_Image");
 	cvDestroyWindow("ROI1_Image");
@@ -458,13 +476,12 @@ void* BallCapture(void *arg)
     
 
    //ROI2 = outer, ROI1 = inner
-   while(numchances>=0)
+   while(numchances>0)
    {
-   printf("number of chances in capture:%d\n",numchances);
 
-   printf("Game State in Detection Thread %d\n", game_state);
+
    sem_wait(&sem1);
-  if(game_state == ENDOFGAME)
+   if(game_state == ENDOFGAME)
 	break;
    cvNamedWindow(timg_window_name_houghline_eliptical, CV_WINDOW_AUTOSIZE);
     
@@ -477,7 +494,7 @@ void* BallCapture(void *arg)
    	{
         	pthread_mutex_lock(&mutex_locker);
 		clock_gettime(CLOCK_REALTIME, &start_time);
-		printf("\n[Ball Capture]Task Request Time %ld sec %ld ms\n",start_time.tv_sec,start_time.tv_nsec/NSEC_PER_MSEC);
+		//printf("\n[Ball Capture]Task Request Time %ld sec %ld ms\n",start_time.tv_sec,start_time.tv_nsec/NSEC_PER_MSEC);
 		frame=cvQueryFrame(capture);
 
 		Mat mat_frame(frame);
@@ -495,7 +512,7 @@ void* BallCapture(void *arg)
 		clock_gettime(CLOCK_REALTIME, &stop_time);
 
    		delta_t(&stop_time,&start_time,&final_time);
-		printf("\n[Ball Capture]Completion Time %ld sec %ld ms\n",stop_time.tv_sec,stop_time.tv_nsec/NSEC_PER_MSEC);
+		//printf("\n[Ball Capture]Completion Time %ld sec %ld ms\n",stop_time.tv_sec,stop_time.tv_nsec/NSEC_PER_MSEC);
 		avgWCET += (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
 		if(maxWCET < ((final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000))
 		    	maxWCET = (final_time.tv_nsec)/NSEC_PER_MSEC + (final_time.tv_sec)/1000;
@@ -506,8 +523,8 @@ void* BallCapture(void *arg)
 		while(signal_capture==0);
 		signal_capture = 0;
    	}//WHile numframes
-	printf("\n[Ball Capture]ACET over %d frames:%ldmsec\n",GOALS,avgWCET/GOALS);
-    	printf("\n[Ball Capture]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
+	//printf("\n[Ball Capture]ACET over %d frames:%ldmsec\n",GOALS,avgWCET/GOALS);
+    	//printf("\n[Ball Capture]WCET over %d frames:%ldmsec\n",GOALS,maxWCET);
         cvReleaseCapture(&capture);
         cvDestroyWindow(timg_window_name_houghline_eliptical);
    //}//while gamestate
@@ -620,12 +637,11 @@ int main( int argc, char** argv )
     results_prio.sched_priority=rt_max_prio-3;
     pthread_attr_setschedparam(&results_attr, &results_prio);
     
-    
-    //printf("Threads will run on %d CPU cores\n", CPU_COUNT(&threadcpu));
+
     printf("Thread Priorities\n[Ball Capture]		%d\n[Ball Detection]	%d\n[Speaker]		%d\n",capture_prio.sched_priority,detect_prio.sched_priority,results_prio.sched_priority);
    
     size_speak = strlen("Start")+1;
-    //printf("Saying '%s'","Start");
+
     espeak_Synth("Start", size_speak, position, position_type, end_position, flags,
     unique_identifier, user_data );
     
